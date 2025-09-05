@@ -10,10 +10,14 @@ import StudySkeleton from "./StudySkeleton";
 import useStudyData from "./useStudyData";
 import WeeklyGoalDialog from "./WeeklyGoalDialog";
 import NotificationSnackbar from "./NotificationSnackbar";
+import { getJSON, putJSON } from "../../api"; // uses local -> prod fallback and attaches auth automatically
+
+const DASHBOARD_TIMEOUT_MS = 15000;
+const UPDATE_GOAL_TIMEOUT_MS = 10000;
 
 const Study = () => {
   const navigate = useNavigate();
-  const { user, isAuthenticated, loading: userLoading } = useUser();
+  const { isAuthenticated, loading: userLoading } = useUser();
   const decksPerPage = 6;
 
   const {
@@ -46,34 +50,26 @@ const Study = () => {
     if (!userLoading && !isAuthenticated) navigate("/login");
   }, [userLoading, isAuthenticated, navigate]);
 
-  // Fetch user stats
+  // Fetch user stats (longer timeout)
   useEffect(() => {
     if (!isAuthenticated) return;
 
     const fetchUserStats = async () => {
       try {
-        const response = await fetch(
-          "https://ai-card-generate-backend.onrender.com/dashboard",
-          {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-            },
-          }
-        );
+        const data = await getJSON("/dashboard", {
+          timeoutMs: DASHBOARD_TIMEOUT_MS,
+        });
 
-        if (response.ok) {
-          const data = await response.json();
-          setUserStats({
-            weekly_goal: data.weekly_goal || 50,
-            mastery_level: data.mastery_level || 0,
-            study_streak: data.study_streak || 0,
-            retention_rate: data.retention_rate || 0,
-            cards_mastered: data.cards_mastered || 0,
-          });
-          setNewWeeklyGoal(data.weekly_goal || 50);
-        }
-      } catch (error) {
-        console.error("Error fetching user stats:", error);
+        setUserStats({
+          weekly_goal: data?.weekly_goal ?? 50,
+          mastery_level: data?.mastery_level ?? 0,
+          study_streak: data?.study_streak ?? 0,
+          retention_rate: data?.retention_rate ?? 0,
+          cards_mastered: data?.cards_mastered ?? 0,
+        });
+        setNewWeeklyGoal(data?.weekly_goal ?? 50);
+      } catch (err) {
+        console.error("Error fetching user stats:", err);
       }
     };
 
@@ -94,35 +90,25 @@ const Study = () => {
 
   const updateWeeklyGoal = async () => {
     try {
-      const response = await fetch(
-        "https://ai-card-generate-backend.onrender.com/user/stats",
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-          },
-          body: JSON.stringify({ weekly_goal: newWeeklyGoal }),
-        }
+      await putJSON(
+        "/user/stats",
+        { weekly_goal: newWeeklyGoal },
+        { timeoutMs: UPDATE_GOAL_TIMEOUT_MS }
       );
 
-      if (response.ok) {
-        setUserStats((prev) => ({ ...prev, weekly_goal: newWeeklyGoal }));
-        setGoalDialogOpen(false);
-        setSnackbar({
-          open: true,
-          message: "Weekly goal updated successfully!",
-          severity: "success",
-        });
-        // Refresh data after updating goal
-        refreshData(pagination.currentPage);
-      } else {
-        throw new Error("Failed to update weekly goal");
-      }
+      setUserStats((prev) => ({ ...prev, weekly_goal: newWeeklyGoal }));
+      setGoalDialogOpen(false);
+      setSnackbar({
+        open: true,
+        message: "Weekly goal updated successfully!",
+        severity: "success",
+      });
+      // Refresh data after updating goal
+      refreshData(pagination.currentPage);
     } catch (error) {
       setSnackbar({
         open: true,
-        message: error.message || "Error updating weekly goal",
+        message: error?.message || "Error updating weekly goal",
         severity: "error",
       });
     }
@@ -161,7 +147,12 @@ const Study = () => {
         open={snackbar.open}
         message={snackbar.message}
         severity={snackbar.severity}
-        onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
+        onClose={() =>
+          setSnackbar((prev) => ({
+            ...prev,
+            open: false,
+          }))
+        }
       />
     </>
   );

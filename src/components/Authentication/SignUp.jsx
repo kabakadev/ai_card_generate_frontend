@@ -1,6 +1,7 @@
+// src/components/Authentication/SignUp.jsx
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate, Link as RouterLink } from "react-router-dom";
 import { useUser } from "../context/UserContext";
 import { Formik, Form } from "formik";
@@ -22,9 +23,10 @@ import { motion } from "framer-motion";
 import { Visibility, VisibilityOff } from "@mui/icons-material";
 import ThemeToggle from "../ThemeComponents/ThemeToggle";
 
+// --- Validation schema ---
 const validationSchema = Yup.object({
   email: Yup.string()
-    .matches(/^[\w\.-]+@[\w\.-]+\.\w+$/, "Invalid email address")
+    .matches(/^[\w.-]+@[\w.-]+\.\w+$/, "Invalid email address")
     .required("Email is required"),
   username: Yup.string()
     .min(3, "Username must be at least 3 characters")
@@ -34,18 +36,23 @@ const validationSchema = Yup.object({
     .min(6, "Password must be at least 6 characters")
     .required("Password is required"),
   confirmPassword: Yup.string()
-    .oneOf([Yup.ref('password'), null], 'Passwords must match')
-    .required('Password confirmation is required'),
+    .oneOf([Yup.ref("password"), null], "Passwords must match")
+    .required("Password confirmation is required"),
 });
 
-const Signup = () => {
+export default function SignUp() {
   const { signup } = useUser();
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  const handleClickShowPassword = () => setShowPassword((show) => !show);
-  const handleClickShowConfirmPassword = () => setShowConfirmPassword((show) => !show);
+  const initialValues = useMemo(
+    () => ({ email: "", username: "", password: "", confirmPassword: "" }),
+    []
+  );
+
+  const toggleShowPassword = () => setShowPassword((s) => !s);
+  const toggleShowConfirmPassword = () => setShowConfirmPassword((s) => !s);
 
   return (
     <Container
@@ -83,53 +90,65 @@ const Signup = () => {
               <Typography
                 component="h1"
                 variant="h4"
-                sx={{
-                  fontWeight: "bold",
-                  color: "text.primary",
-                  mb: 1,
-                }}
+                sx={{ fontWeight: "bold", color: "text.primary", mb: 1 }}
               >
                 Create Account
               </Typography>
-              <Typography
-                variant="body1"
-                sx={{
-                  color: "text.secondary",
-                }}
-              >
+              <Typography variant="body1" sx={{ color: "text.secondary" }}>
                 Join Flashlearn and start your learning journey
               </Typography>
             </Box>
 
             <Formik
-              initialValues={{ 
-                email: "", 
-                username: "", 
-                password: "",
-                confirmPassword: "" 
-              }}
+              initialValues={initialValues}
               validationSchema={validationSchema}
-              onSubmit={async (values, { setSubmitting, setErrors }) => {
+              onSubmit={async (
+                values,
+                { setSubmitting, setErrors, setStatus }
+              ) => {
+                // One-shot guard (Formik also disables the button via isSubmitting)
+                if (setSubmitting.__locked) return;
+                setSubmitting.__locked = true;
+
+                // Trim inputs to avoid accidental whitespace causing false "exists"
+                const payload = {
+                  email: values.email.trim(),
+                  username: values.username.trim(),
+                  password: values.password,
+                };
+
+                setStatus(undefined);
+                setErrors({});
+
                 try {
-                  const success = await signup(
-                    values.email,
-                    values.username,
-                    values.password
+                  const ok = await signup(
+                    payload.email,
+                    payload.username,
+                    payload.password
                   );
-                  if (success) {
-                    navigate("/dashboard");
-                  }
+                  if (ok) navigate("/dashboard");
                 } catch (error) {
-                  // Handle specific backend errors
-                  if (error.message.includes("Username already exists")) {
-                    setErrors({ username: error.message });
-                  } else if (error.message.includes("Email already exists")) {
-                    setErrors({ email: error.message });
+                  // Map common backend messages / statuses to fields
+                  const msg = error?.message || "Signup failed";
+                  const status = error?.status;
+
+                  if (status === 409 || /already exists/i.test(msg)) {
+                    if (/user(name)?/i.test(msg)) {
+                      setErrors({ username: msg });
+                    } else if (/email/i.test(msg)) {
+                      setErrors({ email: msg });
+                    } else {
+                      setStatus(msg);
+                    }
+                  } else if (status === 400 || /invalid/i.test(msg)) {
+                    setStatus(msg);
                   } else {
-                    setErrors({ general: error.message || "Signup failed" });
+                    setStatus(msg);
                   }
+                } finally {
+                  setSubmitting(false);
+                  setSubmitting.__locked = false;
                 }
-                setSubmitting(false);
               }}
             >
               {({
@@ -139,11 +158,12 @@ const Signup = () => {
                 handleChange,
                 handleBlur,
                 values,
+                status,
               }) => (
-                <Form>
-                  {errors.general && (
+                <Form noValidate>
+                  {status && (
                     <Alert severity="error" sx={{ mb: 2 }}>
-                      {errors.general}
+                      {status}
                     </Alert>
                   )}
 
@@ -152,6 +172,8 @@ const Signup = () => {
                     id="email"
                     name="email"
                     label="Email"
+                    autoComplete="email"
+                    autoFocus
                     value={values.email}
                     onChange={handleChange}
                     onBlur={handleBlur}
@@ -165,6 +187,7 @@ const Signup = () => {
                     id="username"
                     name="username"
                     label="Username"
+                    autoComplete="username"
                     value={values.username}
                     onChange={handleChange}
                     onBlur={handleBlur}
@@ -179,6 +202,7 @@ const Signup = () => {
                     name="password"
                     label="Password"
                     type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
                     value={values.password}
                     onChange={handleChange}
                     onBlur={handleBlur}
@@ -190,7 +214,7 @@ const Signup = () => {
                         <InputAdornment position="end">
                           <IconButton
                             aria-label="toggle password visibility"
-                            onClick={handleClickShowPassword}
+                            onClick={toggleShowPassword}
                             edge="end"
                           >
                             {showPassword ? <VisibilityOff /> : <Visibility />}
@@ -206,21 +230,30 @@ const Signup = () => {
                     name="confirmPassword"
                     label="Confirm Password"
                     type={showConfirmPassword ? "text" : "password"}
+                    autoComplete="new-password"
                     value={values.confirmPassword}
                     onChange={handleChange}
                     onBlur={handleBlur}
-                    error={touched.confirmPassword && Boolean(errors.confirmPassword)}
-                    helperText={touched.confirmPassword && errors.confirmPassword}
+                    error={
+                      touched.confirmPassword && Boolean(errors.confirmPassword)
+                    }
+                    helperText={
+                      touched.confirmPassword && errors.confirmPassword
+                    }
                     sx={{ mb: 3 }}
                     InputProps={{
                       endAdornment: (
                         <InputAdornment position="end">
                           <IconButton
                             aria-label="toggle confirm password visibility"
-                            onClick={handleClickShowConfirmPassword}
+                            onClick={toggleShowConfirmPassword}
                             edge="end"
                           >
-                            {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
+                            {showConfirmPassword ? (
+                              <VisibilityOff />
+                            ) : (
+                              <Visibility />
+                            )}
                           </IconButton>
                         </InputAdornment>
                       ),
@@ -236,6 +269,7 @@ const Signup = () => {
                     variant="contained"
                     type="submit"
                     disabled={isSubmitting}
+                    aria-busy={isSubmitting}
                     sx={{
                       bgcolor: (theme) => theme.palette.primary.main,
                       color: (theme) =>
@@ -263,9 +297,7 @@ const Signup = () => {
                       sx={{
                         color: (theme) => theme.palette.secondary.main,
                         textDecoration: "none",
-                        "&:hover": {
-                          textDecoration: "underline",
-                        },
+                        "&:hover": { textDecoration: "underline" },
                       }}
                     >
                       Sign in here
@@ -279,6 +311,4 @@ const Signup = () => {
       </motion.div>
     </Container>
   );
-};
-
-export default Signup;
+}

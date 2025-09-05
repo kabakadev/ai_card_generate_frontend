@@ -1,35 +1,24 @@
+// src/components/context/UserContext.jsx
 import React, { createContext, useState, useContext, useEffect } from "react";
+import { getJSON, postJSON, setToken, getBase, getToken } from "../../api";
 
 const UserContext = createContext();
-const API_URL = "https://ai-card-generate-backend.onrender.com";
 
 export const UserProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const TOKEN_KEY = "authToken";
-
   const fetchUser = async () => {
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-
     try {
-      const response = await fetch(`${API_URL}/user`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data);
-        setIsAuthenticated(true);
-      } else {
-        logout();
+      if (!getToken(getBase())) {
+        setLoading(false);
+        return;
       }
-    } catch (error) {
-      console.error("Error fetching user:", error);
+      const data = await getJSON("/user");
+      setUser(data);
+      setIsAuthenticated(true);
+    } catch {
       logout();
     } finally {
       setLoading(false);
@@ -41,63 +30,34 @@ export const UserProvider = ({ children }) => {
   }, []);
 
   const signup = async (email, username, password) => {
-    try {
-      const response = await fetch(`${API_URL}/signup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, username, password }),
-      });
-      // Handle network errors (response never received)
-      if (!response) {
-        throw new Error("Network error - please check your connection");
-      }
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        // Handle specific error cases
-        if (data.error === "username_exists") {
-          throw new Error(data.message);
-        } else if (data.error === "email_exists") {
-          throw new Error(data.message);
-        } else {
-          throw new Error(data.error || "Signup failed");
-        }
-      }
-
-      const success = await login(email, password);
-      return success;
-    } catch (error) {
-      console.error("Signup error:", error);
-      throw error;
+    // Removed Idempotency-Key header to avoid CORS preflight block
+    const data = await postJSON(
+      "/signup",
+      { email, username, password },
+      { preferLocal: true, noAuth: true }
+    );
+    if (data?.error === "username_exists" || data?.error === "email_exists") {
+      throw new Error(data.message || data.error);
     }
+    return await login(email, password);
   };
 
   const login = async (email, password) => {
-    try {
-      const response = await fetch(`${API_URL}/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        localStorage.setItem(TOKEN_KEY, data.token);
-        await fetchUser();
-        return true;
-      } else {
-        throw new Error(data.error || "Login failed");
-      }
-    } catch (error) {
-      console.error("Login error:", error);
-      throw error;
-    }
+    const data = await postJSON(
+      "/login",
+      { email, password },
+      { preferLocal: true, noAuth: true }
+    );
+    if (!data?.token) throw new Error("Login failed: missing token");
+    setToken(data.token, getBase());
+    await fetchUser();
+    return true;
   };
 
   const logout = () => {
-    localStorage.removeItem(TOKEN_KEY);
+    try {
+      setToken(null, getBase());
+    } catch {}
     setUser(null);
     setIsAuthenticated(false);
   };

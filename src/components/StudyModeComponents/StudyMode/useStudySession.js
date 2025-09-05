@@ -1,13 +1,10 @@
+// src/components/Study/StudyMode/useStudySession.js
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { getJSON, postJSON } from "../../../api"; // adjust if your api.js path differs
 
-export const useStudySession = (
-  deckId,
-  API_URL,
-  startTimeRef,
-  sessionStartTimeRef
-) => {
+export const useStudySession = (deckId, startTimeRef, sessionStartTimeRef) => {
   const [flashcards, setFlashcards] = useState([]);
   const [progress, setProgress] = useState([]);
   const [currentFlashcardIndex, setCurrentFlashcardIndex] = useState(0);
@@ -30,98 +27,83 @@ export const useStudySession = (
       try {
         const token = localStorage.getItem("authToken");
 
-        //fetch deck
-        const deckResponse = await fetch(`${API_URL}/decks/${deckId}`, {
+        // 1) Deck details
+        const deckData = await getJSON(`/decks/${deckId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-
-        if (!deckResponse.ok) throw new Error("Failed to fetch deck details");
-        const deckData = await deckResponse.json();
         setDeck(deckData);
 
-        //fetch deck-specific flashcards
-        const flashcardsResponse = await fetch(`${API_URL}/flashcards?deck_id=${deckId}&all=true`, {
+        // 2) Flashcards for this deck (supports array or {items})
+        const flashcardsData = await getJSON(
+          `/flashcards?deck_id=${deckId}&all=true`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const deckFlashcards = Array.isArray(flashcardsData?.items)
+          ? flashcardsData.items
+          : Array.isArray(flashcardsData)
+          ? flashcardsData
+          : [];
+        setFlashcards(deckFlashcards);
+
+        // 3) Progress for this deck
+        const progressData = await getJSON(`/progress/deck/${deckId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-
-        if (!flashcardsResponse.ok)
-          throw new Error("Failed to fetch flashcards");
-        const flashcardsData = await flashcardsResponse.json();
-
-        // Use items if paginated response, otherwise use direct array
-        const deckFlashcards = Array.isArray(flashcardsData.items) 
-        ? flashcardsData.items 
-        : Array.isArray(flashcardsData) 
-          ? flashcardsData 
-          : [];
-      
-      setFlashcards(deckFlashcards);
-        const progressResponse = await fetch(
-          `${API_URL}/progress/deck/${deckId}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
-
-        if (!progressResponse.ok) throw new Error("Failed to fetch progress");
-        const progressData = await progressResponse.json();
         setProgress(Array.isArray(progressData) ? progressData : []);
 
         setSessionStats((prev) => ({
           ...prev,
           totalCards: deckFlashcards.length,
         }));
-      } catch (error) {
-        console.error("Error fetching data:", error);
+      } catch (err) {
+        console.error("Error fetching data:", err);
         setError("Failed to load study session. Please try again.");
       } finally {
         setLoading(false);
       }
     };
 
-    fetchData();
-  }, [deckId, API_URL]);
+    if (deckId) fetchData();
+  }, [deckId]);
 
   const getCardProgress = useCallback(
-    (flashcardId) => {
-      return (
-        progress.find((p) => p.flashcard_id === flashcardId) || {
-          study_count: 0,
-          correct_attempts: 0,
-          incorrect_attempts: 0,
-          is_learned: false,
-        }
-      );
-    },
+    (flashcardId) =>
+      progress.find((p) => p.flashcard_id === flashcardId) || {
+        study_count: 0,
+        correct_attempts: 0,
+        incorrect_attempts: 0,
+        is_learned: false,
+      },
     [progress]
   );
 
   const handleFlashcardResponse = useCallback(
     async (wasCorrect) => {
       const currentFlashcard = flashcards[currentFlashcardIndex];
-      if (!currentFlashcard) { 
+      if (!currentFlashcard) {
         console.error("No current flashcard found");
         return;
       }
-      const timeSpent = (Date.now() - startTimeRef.current) / 60000; // Convert to minutes
+
+      const timeSpent = (Date.now() - startTimeRef.current) / 60000; // minutes
 
       try {
         const token = localStorage.getItem("authToken");
-        const response = await fetch(`${API_URL}/progress`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            deck_id: Number.parseInt(deckId),
+        await postJSON(
+          "/progress",
+          {
+            deck_id: Number.parseInt(deckId, 10),
             flashcard_id: currentFlashcard.id,
             was_correct: wasCorrect,
             time_spent: timeSpent,
-          }),
-        });
-
-        if (!response.ok) throw new Error("Failed to update progress");
+          },
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
 
         // Track answered card
         setAnsweredCards((prev) => new Set(prev).add(currentFlashcard.id));
@@ -132,12 +114,12 @@ export const useStudySession = (
           incorrectAnswers: prev.incorrectAnswers + (wasCorrect ? 0 : 1),
           timeSpent: prev.timeSpent + timeSpent,
         }));
-      } catch (error) {
-        console.error("Error updating progress:", error);
+      } catch (err) {
+        console.error("Error updating progress:", err);
         setError("Failed to save your progress. Please try again.");
       }
     },
-    [API_URL, currentFlashcardIndex, deckId, flashcards, startTimeRef]
+    [deckId, currentFlashcardIndex, flashcards, startTimeRef]
   );
 
   const handleFinishSession = useCallback(() => {

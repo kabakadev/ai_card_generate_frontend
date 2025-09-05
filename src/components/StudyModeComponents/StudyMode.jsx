@@ -1,3 +1,4 @@
+// src/components/Study/StudyMode.jsx
 "use client";
 
 import { useEffect, useRef } from "react";
@@ -12,8 +13,6 @@ import StudySummary from "./StudyMode/StudySummary";
 import { useStudySession } from "./StudyMode/useStudySession";
 import LoadingState from "./LoadingState";
 import EmptyDeckState from "./StudyMode/EmptyDeckState";
-
-const API_URL = "https://ai-card-generate-backend.onrender.com";
 
 const StudyMode = () => {
   const { deckId } = useParams();
@@ -39,7 +38,7 @@ const StudyMode = () => {
     getCardProgress,
     answeredCards,
     handleFinishSession,
-  } = useStudySession(deckId, API_URL, startTimeRef, sessionStartTimeRef);
+  } = useStudySession(deckId, startTimeRef, sessionStartTimeRef);
 
   // Helper function to check if current card is answered
   const isCurrentCardAnswered = () => {
@@ -55,9 +54,8 @@ const StudyMode = () => {
       if (e.key === " " || e.key === "Enter") {
         e.preventDefault();
         setShowAnswer(!showAnswer);
-      }
-      // Right arrow - move to next card or submit correct answer
-      else if (e.key === "ArrowRight") {
+      } else if (e.key === "ArrowRight") {
+        // Right arrow - move to next card or submit correct answer
         if (showAnswer && !isCurrentCardAnswered()) {
           handleFlashcardResponse(true);
         } else if (currentFlashcardIndex < flashcards.length - 1) {
@@ -65,9 +63,8 @@ const StudyMode = () => {
           setShowAnswer(false);
           startTimeRef.current = Date.now();
         }
-      }
-      // Left arrow - move to previous card or submit incorrect answer
-      else if (e.key === "ArrowLeft") {
+      } else if (e.key === "ArrowLeft") {
+        // Left arrow - move to previous card or submit incorrect answer
         if (showAnswer && !isCurrentCardAnswered()) {
           handleFlashcardResponse(false);
         } else if (currentFlashcardIndex > 0) {
@@ -75,9 +72,8 @@ const StudyMode = () => {
           setShowAnswer(false);
           startTimeRef.current = Date.now();
         }
-      }
-      // Number keys for direct response
-      else if (showAnswer && !isCurrentCardAnswered()) {
+      } else if (showAnswer && !isCurrentCardAnswered()) {
+        // Number keys for direct response
         if (e.key === "1") {
           handleFlashcardResponse(true);
         } else if (e.key === "0") {

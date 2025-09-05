@@ -1,6 +1,7 @@
+// src/components/Authentication/Login.jsx
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate, Link as RouterLink } from "react-router-dom";
 import { useUser } from "../context/UserContext";
 import { Formik, Form } from "formik";
@@ -31,12 +32,13 @@ const validationSchema = Yup.object({
     .required("Password is required"),
 });
 
-const Login = () => {
+export default function Login() {
   const { login } = useUser();
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
 
-  const handleClickShowPassword = () => setShowPassword((show) => !show);
+  const initialValues = useMemo(() => ({ email: "", password: "" }), []);
+  const toggleShowPassword = () => setShowPassword((s) => !s);
 
   return (
     <Container
@@ -74,37 +76,57 @@ const Login = () => {
               <Typography
                 component="h1"
                 variant="h4"
-                sx={{
-                  fontWeight: "bold",
-                  color: "text.primary",
-                  mb: 1,
-                }}
+                sx={{ fontWeight: "bold", color: "text.primary", mb: 1 }}
               >
                 Welcome Back
               </Typography>
-              <Typography
-                variant="body1"
-                sx={{
-                  color: "text.secondary",
-                }}
-              >
+              <Typography variant="body1" sx={{ color: "text.secondary" }}>
                 Sign in to continue learning
               </Typography>
             </Box>
 
             <Formik
-              initialValues={{ email: "", password: "" }}
+              initialValues={initialValues}
               validationSchema={validationSchema}
-              onSubmit={async (values, { setSubmitting, setErrors }) => {
+              onSubmit={async (
+                values,
+                { setSubmitting, setErrors, setStatus }
+              ) => {
+                // extra guard against accidental double-submit
+                if (setSubmitting.__locked) return;
+                setSubmitting.__locked = true;
+
+                // normalize inputs
+                const payload = {
+                  email: values.email.trim(),
+                  password: values.password,
+                };
+
+                setStatus(undefined);
+                setErrors({});
+
                 try {
-                  const success = await login(values.email, values.password);
-                  if (success) {
-                    navigate("/dashboard");
-                  }
+                  const ok = await login(payload.email, payload.password);
+                  if (ok) navigate("/dashboard");
                 } catch (error) {
-                  setErrors({ general: error.message || "Login failed" });
+                  const msg = error?.message || "Login failed";
+                  const status = error?.status;
+
+                  // Common mappings (adjust to your backend messages if needed)
+                  if (
+                    status === 401 ||
+                    /invalid|incorrect|unauthorized/i.test(msg)
+                  ) {
+                    setStatus("Invalid email or password.");
+                  } else if (status === 400) {
+                    setStatus(msg);
+                  } else {
+                    setStatus(msg);
+                  }
+                } finally {
+                  setSubmitting(false);
+                  setSubmitting.__locked = false;
                 }
-                setSubmitting(false);
               }}
             >
               {({
@@ -114,11 +136,12 @@ const Login = () => {
                 handleChange,
                 handleBlur,
                 values,
+                status,
               }) => (
-                <Form>
-                  {errors.general && (
+                <Form noValidate>
+                  {status && (
                     <Alert severity="error" sx={{ mb: 2 }}>
-                      {errors.general}
+                      {status}
                     </Alert>
                   )}
 
@@ -127,11 +150,13 @@ const Login = () => {
                     id="email"
                     name="email"
                     label="Email"
+                    autoComplete="email"
+                    autoFocus
                     value={values.email}
                     onChange={handleChange}
                     onBlur={handleBlur}
                     error={touched.email && Boolean(errors.email)}
-                    helperText={touched.email && values.email === "" ? errors.email : ""}
+                    helperText={touched.email && errors.email}
                     sx={{ mb: 2 }}
                   />
 
@@ -141,18 +166,19 @@ const Login = () => {
                     name="password"
                     label="Password"
                     type={showPassword ? "text" : "password"}
+                    autoComplete="current-password"
                     value={values.password}
                     onChange={handleChange}
                     onBlur={handleBlur}
                     error={touched.password && Boolean(errors.password)}
-                    helperText={touched.password && values.password === "" ? errors.password : ""}
+                    helperText={touched.password && errors.password}
                     sx={{ mb: 3 }}
                     InputProps={{
                       endAdornment: (
                         <InputAdornment position="end">
                           <IconButton
                             aria-label="toggle password visibility"
-                            onClick={handleClickShowPassword}
+                            onClick={toggleShowPassword}
                             edge="end"
                           >
                             {showPassword ? <VisibilityOff /> : <Visibility />}
@@ -171,6 +197,7 @@ const Login = () => {
                     variant="contained"
                     type="submit"
                     disabled={isSubmitting}
+                    aria-busy={isSubmitting}
                     sx={{
                       bgcolor: (theme) => theme.palette.primary.main,
                       color: (theme) =>
@@ -191,16 +218,14 @@ const Login = () => {
                     align="center"
                     sx={{ color: "text.secondary" }}
                   >
-                    Don't have an account?{" "}
+                    Don&apos;t have an account?{" "}
                     <Link
                       component={RouterLink}
                       to="/signup"
                       sx={{
-                        color: theme => theme.palette.secondary.main,
+                        color: (theme) => theme.palette.secondary.main,
                         textDecoration: "none",
-                        "&:hover": {
-                          textDecoration: "underline",
-                        },
+                        "&:hover": { textDecoration: "underline" },
                       }}
                     >
                       Sign up here
@@ -214,6 +239,4 @@ const Login = () => {
       </motion.div>
     </Container>
   );
-};
-
-export default Login;
+}
